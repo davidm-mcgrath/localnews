@@ -1,0 +1,385 @@
+---
+title: "Results"
+output: pdf_document
+date: "2025-04-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Full results
+
+```{r}
+library(tidyverse)
+library(stargazer)
+library(lfe)
+library(broom)
+setwd("C:/Users/dm4947/OneDrive/Documents/NYU/Dissertation/Data/NewspaperText/Analysis_datasets")
+
+nptext_monthgrouped=read.csv("5MRS_groupbymonth_full.csv")
+nptext_monthgrouped_l=read.csv("5MRS_groupbymonth_local.csv")
+nptext_monthgrouped_c=read.csv("5MRS_groupbymonth_crime.csv")
+nptext_monthgrouped_n=read.csv("5MRS_groupbymonth_natl.csv")
+
+nptext_6monthgrouped=read.csv("5MRS_groupby6month_full.csv")
+nptext_6monthgrouped_l=read.csv("5MRS_groupby6month_local.csv")
+nptext_6monthgrouped_c=read.csv("5MRS_groupby6month_crime.csv")
+nptext_6monthgrouped_n=read.csv("5MRS_groupby6month_natl.csv")
+```
+
+```{r,results='asis'}
+#local
+mloc1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped_l)
+
+mloc2=felm(prop_negative ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped_l)
+
+
+#crime
+mcrime1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_c)
+mcrime2=felm(prop_negative ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_c)
+
+#national
+mnat1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped_n)
+mnat2=felm(prop_negative ~ after95| month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped_n)
+
+stargazer(mloc1,mloc2,mcrime1,mcrime2,mnat1,mnat2,type="latex",omit.stat = "ser") 
+
+```
+
+```{r,results='asis'}
+#local
+ploc1=felm(prop_local ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped)
+
+ploc2=felm(prop_local ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped)
+
+
+#crime
+pcrime1=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped)
+pcrime2=felm(prop_crime ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped)
+
+#national
+pnat1=felm(prop_natl ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped)
+pnat2=felm(prop_natl ~ after95| month_year + NPNAME1|0|NPNAME1,
+                data = nptext_monthgrouped)
+
+stargazer(ploc1,ploc2,pcrime1,pcrime2,pnat1,pnat2,type="latex",omit.stat = "ser")
+
+```
+
+```{r, results='asis'}
+# run crime regressions separately by circulation
+circquart=quantile(nptext_monthgrouped$circ,probs = seq(0, 1, 0.2))
+nptext_monthgrouped1=nptext_monthgrouped %>%
+  filter(circ<circquart[2])
+nptext_monthgrouped2=nptext_monthgrouped %>%
+  filter(circ>circquart[2] & circ<circquart[3])
+nptext_monthgrouped3=nptext_monthgrouped %>%
+  filter(circ>circquart[3] & circ<circquart[4])
+nptext_monthgrouped4=nptext_monthgrouped %>%
+  filter(circ>circquart[4] & circ<circquart[5])
+nptext_monthgrouped5=nptext_monthgrouped %>%
+  filter(circ>circquart[5] & circ<circquart[6])
+
+
+pcrime1_1=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped1)
+pcrime1_2=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped2)
+pcrime1_3=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped3)
+pcrime1_4=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped4)
+pcrime1_5=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped5)
+
+stargazer(pcrime1_1,pcrime1_2,pcrime1_3,pcrime1_4,pcrime1_5,
+          type="latex",omit.stat = "ser")
+```
+
+```{r, results='asis'}
+# run crime regressions separately by circulation
+nptext_monthgrouped_low=nptext_monthgrouped %>%
+  filter(circ<10000)
+nptext_monthgrouped_med=nptext_monthgrouped %>%
+  filter(circ>10000 & circ<100000)
+nptext_monthgrouped_high=nptext_monthgrouped %>%
+  filter(circ>100000)
+
+
+pcrime1_1=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_low)
+pcrime1_2=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_med)
+pcrime1_3=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_high)
+
+
+stargazer(pcrime1_1,pcrime1_2,pcrime1_3,
+          type="latex",omit.stat = "ser")
+
+plocal1_1=felm(prop_local ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_low)
+plocal1_2=felm(prop_local ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_med)
+plocal1_3=felm(prop_local ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_high)
+
+
+pnatl1_1=felm(prop_natl ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_low)
+pnatl1_2=felm(prop_natl ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_med)
+pnatl1_3=felm(prop_natl ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = nptext_monthgrouped_high)
+
+
+#get each model coef and se into df
+estimate=c(coef(pcrime1_1),coef(pcrime1_2),coef(pcrime1_3),
+             coef(plocal1_1),coef(plocal1_2),coef(plocal1_3),
+             coef(pnatl1_1),coef(pnatl1_2),coef(pnatl1_3))
+std.error=c(pcrime1_1$cse,pcrime1_2$cse,pcrime1_3$cse,
+             plocal1_1$cse,plocal1_2$cse,plocal1_3$cse,
+             pnatl1_1$cse,pnatl1_2$cse,pnatl1_3$cse)
+split_sample_models=cbind(estimate,std.error) %>% data.frame() %>%
+   mutate(ci_low=estimate-1.96*std.error,
+         ci_high=estimate+1.96*std.error)
+split_sample_models$model=rep(c("Low Circulation",
+                                "Medium Circulation",
+                                "High Circulation"),3)
+split_sample_models$term=rep(c("Crime","Local","National"),each=3)
+library(dotwhisker)
+
+spl_models=dwplot(split_sample_models) + theme(legend.position = "bottom",
+                                                                              legend.title = element_blank()) +
+  xlab("Coefficient on Broadband Penetration") + geom_vline(xintercept = 0,
+                                                            lty=2)
+spl_models
+```
+
+#negativity regressions split by circ
+```{r,results='asis'}
+#local
+mloc1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_l,circ<10000))
+mloc2=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_l,
+                          circ>10000 & circ<100000))
+mloc3=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_l,circ<100000))
+
+
+#crime
+mcrime1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_c,circ<10000))
+mcrime2=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_c,
+                          circ>10000 & circ<100000))
+mcrime3=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_c,circ<100000))
+
+
+#national
+mnat1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_n,circ<10000))
+mnat2=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_n,
+                          circ>10000 & circ<100000))
+mnat3=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+            data = filter(nptext_monthgrouped_n,circ<100000))
+
+#get each model coef and se into df
+estimate=c(coef(mcrime1),coef(mcrime2),coef(mcrime3),
+             coef(mloc1),coef(mloc2),coef(mloc3),
+             coef(mnat1),coef(mnat2),coef(mnat3))
+std.error=c(mcrime1$cse,mcrime2$cse,mcrime3$cse,
+             mloc1$cse,mloc2$cse,mloc3$cse,
+             mnat1$cse,mnat2$cse,mnat3$cse)
+split_sample_models=cbind(estimate,std.error) %>% data.frame() %>%
+  mutate(ci_low=coefs-1.96*ses,
+         ci_high=coefs+1.96*ses)
+split_sample_models$model=rep(c("Low Circulation",
+                                "Medium Circulation",
+                                "High Circulation"),3)
+split_sample_models$term=rep(c("Crime","Local","National"),each=3)
+library(dotwhisker)
+
+spl_models2=dwplot(split_sample_models) + theme(legend.position = "bottom",
+                                                                              legend.title = element_blank()) +
+  xlab("Coefficient on Broadband Penetration") + geom_vline(xintercept = 0,
+                                                            lty=2)
+spl_models2
+
+
+
+```
+
+
+
+### Grouped by 6 months
+```{r,results='asis'}
+#local
+mloc1=felm(prop_negative ~ broadband | time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped_l)
+
+mloc2=felm(prop_negative ~ after95 | time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped_l)
+
+
+#crime
+mcrime1=felm(prop_negative ~ broadband | time_period + NPNAME1|0|NPNAME1,
+                  data = nptext_6monthgrouped_c)
+mcrime2=felm(prop_negative ~ after95 | time_period + NPNAME1|0|NPNAME1,
+                  data = nptext_6monthgrouped_c)
+
+#national
+mnat1=felm(prop_negative ~ broadband | time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped_n)
+mnat2=felm(prop_negative ~ after95| time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped_n)
+
+stargazer(mloc1,mloc2,mcrime1,mcrime2,mnat1,mnat2,type="latex",omit.stat = "ser") 
+
+```
+
+```{r,results='asis'}
+#local
+ploc1=felm(prop_local ~ broadband | time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped)
+
+ploc2=felm(prop_local ~ after95 | time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped)
+
+
+#crime
+pcrime1=felm(prop_crime ~ broadband | time_period + NPNAME1|0|NPNAME1,
+                  data = nptext_6monthgrouped)
+pcrime2=felm(prop_crime ~ after95 | time_period + NPNAME1|0|NPNAME1,
+                  data = nptext_6monthgrouped)
+
+#national
+pnat1=felm(prop_natl ~ broadband | time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped)
+pnat2=felm(prop_natl ~ after95| time_period + NPNAME1|0|NPNAME1,
+                data = nptext_6monthgrouped)
+
+stargazer(ploc1,ploc2,pcrime1,pcrime2,pnat1,pnat2,type="latex",omit.stat = "ser")
+
+```
+
+
+
+
+
+#### Omitting top 25 or 53 circulation newspapers 
+```{r,results='asis'}
+#local
+mloc1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped_l,circ<100000))
+
+mloc2=felm(prop_negative ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped_l,circ<100000))
+
+
+#crime
+mcrime1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = filter(nptext_monthgrouped_c,circ<100000))
+mcrime2=felm(prop_negative ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                  data = filter(nptext_monthgrouped_c,circ<100000))
+
+#national
+mnat1=felm(prop_negative ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped_n,circ<100000))
+mnat2=felm(prop_negative ~ after95| month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped_n,circ<100000))
+
+stargazer(mloc1,mloc2,mcrime1,mcrime2,mnat1,mnat2,
+          type="latex",omit.stat = "ser") 
+
+```
+
+```{r,results='asis'}
+#local
+ploc1=felm(prop_local ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped,circ<100000))
+
+ploc2=felm(prop_local ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped,circ<100000))
+
+
+#crime
+pcrime1=felm(prop_crime ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                  data = filter(nptext_monthgrouped,circ<100000))
+pcrime2=felm(prop_crime ~ after95 | month_year + NPNAME1|0|NPNAME1,
+                  data = filter(nptext_monthgrouped,circ<100000))
+
+#national
+pnat1=felm(prop_natl ~ broadband | month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped,circ<100000))
+pnat2=felm(prop_natl ~ after95| month_year + NPNAME1|0|NPNAME1,
+                data = filter(nptext_monthgrouped,circ<100000))
+
+stargazer(ploc1,ploc2,pcrime1,pcrime2,pnat1,pnat2,
+          type="latex",omit.stat = "ser")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
