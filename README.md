@@ -1,0 +1,1 @@
+scripts used for cleaning, measuring, and analyzing newspaper text data in my papers: The Effect of Broadband Rollout on Local Newspaper Coverage and Style, and The Effect of Boradband Rollout on Partisan Bias in Local Newspapers
