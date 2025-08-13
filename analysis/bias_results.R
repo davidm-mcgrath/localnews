@@ -1,0 +1,584 @@
+#load packages
+library(tidyverse)
+library(stargazer)
+library(lfe)
+library(broom)
+library(interplot)
+library(miceadds)
+library(ggpubr)
+
+
+#load in natnews data with ideology scores by article
+setwd()
+zsbert=read_csv("natnewsfull_zsbert.csv")
+ws_nr=read_csv("nptextfull_ws_out.csv")
+ft_nr=read_csv("natnewsfull_ft_out.csv")
+ft_nytwsj=read_csv("natnewsfull_ft2_out.csv")
+
+
+#full text
+npnews=read.csv("natnews_full_topics_clean.csv") %>%
+  select(-1)
+npnews=npnews %>%
+  mutate(topic2_label=case_when(topic2==0 ~ "Economy",
+                                topic2==1 ~ "Foreign policy",
+                                topic2==2 ~ "Other",
+                                topic2==3 ~ "Economy",
+                                topic2==4 ~ "Economy",
+                                topic2==5 ~ "Federal Gov't")) 
+
+#merge 4 dfs into 1 with text
+nptextn=merge(npnews,ft_nr,by="X")
+nptextn=merge(nptextn,ft_nytwsj,by="X")
+
+colnames(ws_nr)[1]="wordscore"
+nptextn=merge(nptextn,ws_nr,by="X")
+
+colnames(zsbert)=c("zs_label","zs_confidence","X")
+nptextn=merge(nptextn,zsbert,by="X")
+
+#add newspaper/county metadata
+setwd()
+ad5m=read.csv("analysisdata_5m.csv")
+
+#remove repeat columns - keep one row per np
+npdata=ad5m %>%
+  select(NPNAME1,np.x,nb_index,ep_index,county_st,trt90,trt95,t1_pen,t2_pen,
+         t3_pen,t4_pen,t5_pen,t6_pen,t7_pen,t8_pen,t9_pen,t10_pen,t11_pen,
+         t12_pen,dem_voteshare,tot_pop,circ_abs_2000,jobscount_2000,
+         circ_abs_2001,jobscount_2001,circ_abs_2002,jobscount_2002,
+         circ_abs_2003,jobscount_2003,circ_abs_2004,jobscount_2004,
+         circ_abs_2005,jobscount_2005)
+
+npdata=npdata %>% distinct()
+colnames(npdata)[2]="np"
+
+#merge
+nptextn=merge(nptextn,npdata,by="np")
+
+#add dates
+#convert article date to time period (every 6 months to match broadband data)
+nptextn$date=nptextn$date %>% lubridate::mdy()
+nptextn=drop_na(nptextn,date)
+nptextn$date_num=as.numeric(nptextn$date)
+
+#get week num
+nptextn$week=lubridate::week(nptextn$date)
+#year
+nptextn$year=lubridate::year(nptextn$date)
+#week-year
+nptextn$week_year=paste(nptextn$week,nptextn$year,sep="-")
+
+#month-year
+nptextn$month=lubridate::month(nptextn$date)
+nptextn$month_year=paste(nptextn$month,nptextn$year,sep="-")
+
+
+#week count
+nptextn=nptextn %>%
+  mutate(week_count= week + 53*(year%%10))
+
+npdates=nptextn[unique(nptextn$date),c("date","date_num")]
+nptextn=nptextn %>%
+  mutate(time_period=case_when(date_num<11139 ~ 1,
+                               date_num<11323 ~ 2,
+                               date_num<11504 ~ 3,
+                               date_num<11688 ~ 4,
+                               date_num<11869 ~ 5,
+                               date_num<12053 ~ 6,
+                               date_num<12234 ~ 7,
+                               date_num<12418 ~ 8,
+                               date_num<12600 ~ 9,
+                               date_num<12784 ~ 10,
+                               date_num<12965 ~ 11,
+                               date_num<13149 ~ 12))
+
+#get broadband penetration for each time period
+nptextn=nptextn %>%
+  mutate(broadband=case_when(time_period == 1 ~ t1_pen,
+                             time_period == 2 ~ t2_pen,
+                             time_period == 3 ~ t3_pen,
+                             time_period == 4 ~ t4_pen,
+                             time_period == 5 ~ t5_pen,
+                             time_period == 6 ~ t6_pen,
+                             time_period == 7 ~ t7_pen,
+                             time_period == 8 ~ t8_pen,
+                             time_period == 9 ~ t9_pen,
+                             time_period == 10 ~ t10_pen,
+                             time_period == 11 ~ t11_pen,
+                             time_period == 12 ~ t12_pen))
+
+nptextn=nptextn %>%
+  mutate(after90=ifelse(time_period>=trt90,1,0),
+         after95=ifelse(time_period>=trt95,1,0))
+
+#save full data
+setwd()
+write.csv(nptextn,"p3_natnewsfull.csv")
+
+#load analysis data to skip the first section of code if already done
+#setwd()
+#nptextn=read_csv("p3_natnewsfull.csv")
+
+#convert ft labels and pr to a continuous ideology score between 1 and -1
+nptextn=nptextn %>%
+  mutate(abs_ft=1-2*(1-ft_prob),
+         abs_ft2=1-2*(1-ft2_prob),
+         ft_score=ifelse(ft_label=="liberal",-abs_ft,abs_ft),
+         ft2_score=ifelse(ft2_label=="liberal",-abs_ft2,abs_ft2))
+
+#do the same for the zero-shot encoding from NLI model
+nptextn=nptextn %>%
+  mutate(abs_zs=1-2*(1-zs_confidence),
+         zs_score=ifelse(zs_label=="liberal",-abs_zs,abs_zs))
+
+
+#create month-grouped data
+nptextn_month=nptextn %>% 
+  group_by(NPNAME1,month_year) %>%
+  summarise(avg_ws=mean(wordscore),
+            prop_natrev=sum(ft_label=="conservative")/n(),
+            natrev_pr=mean(ft_score),
+            prop_wsj=sum(ft2_label=="conservative")/n(),
+            wsj_pr=mean(ft2_score),
+            prop_zscon=sum(zs_label=="conservative")/n(),
+            zscon_pr=mean(zs_score),
+            after90=unique(after90),
+            after95=unique(after95),
+            broadband=unique(broadband),
+            pop=unique(tot_pop),
+            demvote=unique(dem_voteshare),
+            circ=unique(circ_abs_2000),
+            jobs=unique(jobscount_2000),
+            n_articles=n(),
+            year=unique(year)) %>%
+  mutate(demvote_scaled=demvote-0.5) %>%
+  filter(n_articles>=50) %>%
+  filter(circ<200000) 
+
+
+#categorize newspaper markets by dem vote share
+nptextn_month=nptextn_month %>% 
+  mutate(Partisanship=ifelse(demvote>0.6, "Strong Democratic",   ifelse(demvote>0.5,"Lean Democratic",ifelse(demvote>0.4,"Lean Republican","Strong Republican"))),
+         jitter_year=ifelse(Partisanship=="Strong Democratic",year-0.15,ifelse(Partisanship=="Lean Democratic",year-0.05,ifelse(Partisanship=="Lean Republican",year+0.05,year+0.15)))) %>%
+  filter(!is.na(Partisanship))
+
+#test correlations between DVs
+cor(nptextn_month$natrev_pr,nptextn_month$avg_ws,use = "complete.obs")
+cor(nptextn_month$zscon_pr,nptextn_month$natrev_pr,use = "complete.obs")
+cor(nptextn_month$natrev_pr,nptextn_month$wsj_pr,use = "complete.obs")
+plot(nptextn_month$natrev_pr,nptextn_month$wsj_pr)
+
+
+
+#descriptives
+#year grouped data
+nptextn_year=nptextn %>% group_by(NPNAME1,year) %>%
+  summarise(avg_ws=mean(wordscore),
+            prop_natrev=sum(ft_label=="conservative")/n(),
+            natrev_pr=mean(ft_score),
+            prop_wsj=sum(ft2_label=="conservative")/n(),
+            wsj_pr=mean(ft2_score),
+            prop_zscon=sum(zs_label=="conservative")/n(),
+            zscon_pr=mean(zs_score),
+            after90=unique(after90),
+            after95=unique(after95),
+            broadband=unique(broadband),
+            pop=unique(tot_pop),
+            demvote=unique(dem_voteshare),
+            circ=unique(circ_abs_2000),
+            jobs=unique(jobscount_2000),
+            n_articles=n()) %>%
+  filter(n_articles>=100)
+
+#add 4-point partisanship
+nptextn_year=nptextn_year %>% 
+  mutate(Partisanship=ifelse(demvote>0.55, "Democratic",   ifelse(demvote<0.45,"Republican","Swing")),
+         jitter_year=ifelse(Partisanship=="Democratic",year-0.1,ifelse(Partisanship=="Swing",year,year+0.1))) %>%
+  filter(!is.na(partisanship)) %>%
+  filter(circ<100000)
+
+
+## generate plots to show mean yearly ideology for every newspaper in the sample, with nps grouped by 4-point partisanship - generate 1 plot for each DV
+#nat rev ft
+bias_by_year1=ggplot(data = nptextn_month,
+                    aes(x=jitter_year,y=natrev_pr,color = Partisanship)) +
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "loess")+
+  scale_color_manual(values=c("lightblue","pink","navy","darkred")) +
+  ylab("Ideology (Nat. Review-New Rep.)") + xlab("Year")
+bias_by_year1
+
+#wsj ft
+bias_by_year2=ggplot(data = nptextn_month,
+                    aes(x=jitter_year,y=wsj_pr,color = Partisanship)) +
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "loess") +
+  scale_color_manual(values=c("lightblue","pink","navy","darkred")) +
+  ylab("Ideology (WSJ-NYT)") + xlab("Year")
+bias_by_year2
+
+#new rep ws
+bias_by_year3=ggplot(data = nptextn_month,
+                    aes(x=jitter_year,y=avg_ws,color = Partisanship)) +
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "loess") +
+  scale_color_manual(values=c("lightblue","pink","navy","darkred"))+
+  ylab("Wordscore (Nat. Review-New Rep.)") + xlab("Year")
+bias_by_year3
+
+
+#zs bert
+bias_by_year4=ggplot(data = nptextn_month,
+                    aes(x=jitter_year,y=zscon_pr,color = Partisanship)) +
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "loess") +
+  scale_color_manual(values=c("lightblue","pink","navy","darkred"))+
+  ylab("Zero-Shot Ideology") + xlab("Year")
+bias_by_year4
+
+plot1=ggarrange(bias_by_year1,bias_by_year2,bias_by_year3,bias_by_year4,
+          ncol = 2,nrow = 2,common.legend = TRUE,legend = "bottom",
+          labels = "AUTO")
+
+
+###test initial partisanship of newspapers in 2000 - no need to save these model objects, they won't be in the paper
+summary(lm(wsj_pr~demvote,
+           data=filter(nptextn_month,year==2000)))
+summary(lm(natrev_pr~demvote,
+           data=filter(nptextn_month,year==2000)))
+summary(lm(avg_ws~demvote,
+           data=filter(nptextn_month,year==2000)))
+summary(lm(zscon_pr~demvote,
+           data=filter(nptextn_month,year==2000)))
+
+#generate plots of the bivariate relationship in 2000 between dem vote share and ideology
+t1=ggplot(data = filter(nptextn_month,year==2000),
+          aes(x=demvote,y=avg_ws))+
+  geom_point() +
+  geom_smooth(method = "lm",formula = y~x) +
+  xlab("Gore Vote Share") + ylab("Wordscore (Nat. Review-New Rep.)")
+
+t2=ggplot(data = filter(nptextn_month,year==2000),
+          aes(x=demvote,y=natrev_pr))+
+  geom_point() +
+  geom_smooth(method = "lm",formula = y~x) +
+  xlab("Gore Vote Share") + ylab("Ideology (Nat. Review-New Rep.)")
+
+t3=ggplot(data = filter(nptextn_month,year==2000),
+          aes(x=demvote,y=wsj_pr))+
+  geom_point() +
+  geom_smooth(method = "lm",formula = y~x) +
+  xlab("Gore Vote Share") + ylab("Ideology (WSJ-NYT)") 
+  
+t4=ggplot(data = filter(nptextn_month,year==2000),
+          aes(x=demvote,y=zscon_pr))+
+  geom_point() +
+  geom_smooth(method = "lm",formula = y~x) +
+  xlab("Gore Vote Share") + ylab("Zero-Shot Ideology")
+
+#figure that will appear in the paper
+plot2=ggarrange(t2,t3,t1,t4,ncol = 2,nrow = 2,common.legend = TRUE,
+                legend = "bottom",labels = "AUTO")
+```
+
+
+
+### Regressions - Grouped by month (main results)
+#add variable centering ideology around Q1-2000 mean of that DV across the full sample
+fm2000=nptextn_month %>% filter(month_year%in%c("2-2000","3-2000"))
+nptextn_month=nptextn_month %>%
+  mutate(ws_dm=avg_ws-mean(fm2000$avg_ws),
+         nr_dm=natrev_pr-mean(fm2000$natrev_pr),
+         wsj_dm=wsj_pr-mean(fm2000$wsj_pr),
+         zs_dm=zscon_pr-mean(fm2000$zscon_pr))
+
+#create separate dataframes to split sample by 2-point partisanship
+nptextn_monthd=nptextn_month %>%
+  filter(demvote>0.5)
+nptextn_monthr=nptextn_month %>%
+  filter(demvote<0.5)
+
+
+#variance - absolute ideology
+v1=felm(abs(ws_dm) ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_month)
+v2=felm(abs(nr_dm) ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_month)
+v3=felm(abs(wsj_dm) ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_month)
+v4=felm(abs(zs_dm) ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_month)
+
+
+#split sample models (2-point partisanship)
+d1=felm(avg_ws ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthd)
+d2=felm(natrev_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthd)
+d3=felm(wsj_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthd)
+d4=felm(zscon_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthd)
+
+r1=felm(avg_ws ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthr)
+r2=felm(natrev_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthr)
+r3=felm(wsj_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthr)
+r4=felm(zscon_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = nptextn_monthr)
+
+#interaction effect between demvote and broadband (full sample, drop newspaper FE and add NP-level covariates)
+i1=felm(avg_ws ~ broadband*demvote + log(circ) + jobs | month_year |0|NPNAME1,data = nptextn_month)
+
+i2=felm(natrev_pr ~ broadband*demvote + log(circ) + jobs | month_year |0|NPNAME1,data = nptextn_month)
+
+i3=felm(wsj_pr ~ broadband*demvote + log(circ) + jobs | month_year |0|NPNAME1,data = nptextn_month)
+
+i4=felm(zscon_pr ~ broadband*demvote + log(circ) + jobs | month_year |0|NPNAME1,data = nptextn_month)
+
+stargazer(d1,d2,d3,d4,r1,r2,r3,r4,type="latex",omit.stat = "ser")
+stargazer(i1,i2,i3,i4,type="latex",omit.stat = "ser",omit="fac")
+stargazer(v1,v2,v3,v4,type="latex",omit.stat = "ser")
+
+
+
+
+###marginal effects plots for the interaction effect models
+i2_lmc=lm.cluster(natrev_pr ~ broadband*demvote + log(circ) + jobs + factor(month_year), cluster = "NPNAME1",data = nptextn_month)
+
+i3_lmc=lm.cluster(wsj_pr ~ broadband*demvote + broadband + log(circ) + jobs + factor(month_year), cluster = "NPNAME1",data = nptextn_month)
+
+i2p=interplot(m=i2_lmc$lm_res,var1="broadband",var2="demvote",hist = TRUE) + 
+  # Add labels for X and Y axes
+    xlab("Gore Vote Share in 2000") +
+    ylab("Estimated Coefficient for Broadband \non pr(Nat. Review)") +
+  # Change the background
+    theme_bw() +
+  # Add a horizontal line at y = 0
+    geom_hline(yintercept = 0, linetype = "dashed")
+
+
+i3p=interplot(m=i3_lmc$lm_res,var1="broadband",var2="demvote",hist=TRUE) + 
+  # Add labels for X and Y axes
+    xlab("Gore Vote Share in 2000") +
+    ylab("Estimated Coefficient for Broadband \non pr(WSJ)") +
+  # Change the background
+    theme_bw() +
+  # Add a horizontal line at y = 0
+    geom_hline(yintercept = 0, linetype = "dashed")
+
+
+```
+
+
+### Further breaking down partisanship 
+```{r,results='asis'}
+sd2=felm(natrev_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,Partisanship=="Strong Democratic"))
+sd3=felm(wsj_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,,Partisanship=="Strong Democratic"))
+
+ld2=felm(natrev_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,Partisanship=="Lean Democratic"))
+ld3=felm(wsj_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,,Partisanship=="Lean Democratic"))
+
+lr2=felm(natrev_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,Partisanship=="Lean Republican"))
+lr3=felm(wsj_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,,Partisanship=="Lean Republican"))
+
+sr2=felm(natrev_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,Partisanship=="Strong Republican"))
+sr3=felm(wsj_pr ~ broadband | NPNAME1 + month_year |0|NPNAME1,
+        data = filter(nptextn_month,,Partisanship=="Strong Republican"))
+
+#table for ft models on subsamples split by 4-point partisanship
+stargazer(sd2,sd3,ld2,ld3,lr2,lr3,sr2,sr3,type="text",omit.stat = "ser")
+
+#turn this into a coefficient plot
+estimate=c(coef(sd2),coef(sd3),coef(ld2),coef(ld3),coef(lr2),coef(lr3),
+      coef(sr2),coef(sr3))
+std.error=c(sd2$cse,sd3$cse,ld2$cse,ld3$cse,lr2$cse,lr3$cse,
+      sr2$cse,sr3$cse)
+
+split_sample_models=cbind(estimate,std.error) %>% data.frame() %>%
+  mutate(ci_low=estimate-1.96*std.error,
+         ci_high=estimate+1.96*std.error)
+split_sample_models$model=rep(c("Pr(National Review)","Pr(WSJ)"),4)
+split_sample_models$term=rep(c("Strong Democratic","Lean Democratic","Lean Republican","Strong Republican"),each=2)
+
+library(dotwhisker)
+
+spl_models=dwplot(split_sample_models) + theme(legend.position = "bottom",
+                                                                              legend.title = element_blank()) +
+  xlab("Coefficient on Broadband Penetration") + geom_vline(xintercept = 0,
+                                                            lty=2)
+
+
+### More descriptives
+#top 10 papers by ideological extremity
+nptextn_npgroup=nptextn %>% group_by(NPNAME1) %>%
+  summarise(avg_ws=mean(wordscore),
+            prop_natrev=sum(ft_label=="conservative")/n(),
+            natrev_pr=mean(ft_score),
+            prop_wsj=sum(ft2_label=="conservative")/n(),
+            wsj_pr=mean(ft2_score),
+            prop_zscon=sum(zs_label=="conservative")/n(),
+            zscon_pr=mean(zs_score),
+            pop=unique(tot_pop),
+            demvote=unique(dem_voteshare),
+            circ=unique(circ_abs_2000),
+            jobs=unique(jobscount_2000),
+            n_articles=n()) %>%
+  filter(n_articles>100) %>% 
+  filter(circ<200000) %>%
+  mutate(Partisanship=ifelse(demvote>0.5, "Democratic","Republican"),
+         Circulation=ifelse(circ>100000, "High Circulation",ifelse(circ>10000,"Medium Circulation","Low Circulation"))) %>% filter(!is.na(Partisanship))
+
+#order grouped dataframe by ideology 
+arrange(nptextn_npgroup,natrev_pr)$NPNAME1 %>% head(10) 
+arrange(nptextn_npgroup,desc(natrev_pr))$NPNAME1 %>% head(10) 
+
+arrange(nptextn_npgroup,wsj_pr)$NPNAME1 %>% head(10) 
+arrange(nptextn_npgroup,desc(wsj_pr))$NPNAME1 %>% head(10) 
+
+##test if the size of the newspaper affects the magnitude or direction of bias
+
+#just split by circulation
+bias_by_circ1=ggplot(data = nptextn_npgroup,aes(x=natrev_pr,fill=Circulation)) +
+  geom_density(alpha=.5) +
+  geom_vline(xintercept = 0,lty=2) +
+  xlab("Pr(National Review)")
+
+#now subset by circulation and split by partisanship
+lc_nr=ggplot(data = filter(nptextn_npgroup,Circulation=="Low Circulation"&Partisanship!="Swing"),aes(x=natrev_pr,fill=Partisanship)) +
+  geom_density(alpha=.5) +
+  scale_fill_manual(values=c("navy","red")) +
+  geom_vline(xintercept = 0,lty=2)+
+  xlab("Pr(National Review)") +
+  ggtitle("Low Circulation")
+
+mc_nr=ggplot(data = filter(nptextn_npgroup,Circulation=="Medium Circulation"&Partisanship!="Swing"),aes(x=natrev_pr,fill=Partisanship)) +
+  geom_density(alpha=.5) +
+  scale_fill_manual(values=c("navy","red"))+
+  geom_vline(xintercept = 0,lty=2)+
+  xlab("Pr(National Review)")+
+  ggtitle("Medium Circulation")
+
+#repeat for NYT-WSJ ft measure
+bias_by_circ2=ggplot(data = nptextn_npgroup,aes(x=wsj_pr,fill=Circulation)) +
+  geom_density(alpha=.5)+
+  geom_vline(xintercept = 0,lty=2)+
+  xlab("Pr(WSJ)")
+
+lc_wsj=ggplot(data = filter(nptextn_npgroup,Circulation=="Low Circulation"&Partisanship!="Swing"),aes(x=wsj_pr,fill=Partisanship)) +
+  geom_density(alpha=.5) +
+  scale_fill_manual(values=c("navy","red"))+
+  geom_vline(xintercept = 0,lty=2)+
+  xlab("Pr(WSJ)")+
+  ggtitle("Low Circulation")
+
+mc_wsj=ggplot(data = filter(nptextn_npgroup,Circulation=="Medium Circulation"&Partisanship!="Swing"),aes(x=wsj_pr,fill=Partisanship)) +
+  geom_density(alpha=.5) +
+  scale_fill_manual(values=c("navy","red"))+
+  geom_vline(xintercept = 0,lty=2)+
+  xlab("Pr(WSJ)")+
+  ggtitle("Medium Circulation")
+
+ggarrange(bias_by_circ1,bias_by_circ2,common.legend = T,legend = "bottom")
+
+ggarrange(lc_nr,lc_wsj,mc_nr,mc_wsj,common.legend = T,legend = "bottom")
+
+
+
+
+### robustness check - do results hold if I aggregate at the 6-month level instead of one month
+nptextn_6month=nptextn %>% group_by(NPNAME1,time_period) %>%
+  summarise(avg_ws=mean(wordscore),
+            prop_natrev=sum(ft_label=="conservative")/n(),
+            natrev_pr=mean(ft_score),
+            prop_wsj=sum(ft2_label=="conservative")/n(),
+            wsj_pr=mean(ft2_score),
+            prop_zscon=sum(zs_label=="conservative")/n(),
+            zscon_pr=mean(zs_score),
+            after90=unique(after90),
+            after95=unique(after95),
+            broadband=unique(broadband),
+            pop=unique(tot_pop),
+            demvote=unique(dem_voteshare),
+            circ=unique(circ_abs_2000),
+            jobs=unique(jobscount_2000),
+            n_articles=n())  %>%
+  filter(n_articles>=100) %>%
+  filter(circ<200000)
+nptextn_6month=nptextn_6month %>% 
+  mutate(partisanship=ifelse(demvote>0.5,"Democratic","Republican"))
+#grouped by 6 month
+nptextn_6monthd=nptextn_6month %>%
+  filter(partisanship=="Democratic")
+nptextn_6monthr=nptextn_6month %>%
+  filter(partisanship=="Republican")
+
+d1=felm(avg_ws ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthd)
+d2=felm(natrev_pr ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthd)
+d3=felm(wsj_pr ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthd)
+d4=felm(zscon_pr ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthd)
+
+r1=felm(avg_ws ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthr)
+r2=felm(natrev_pr ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthr)
+r3=felm(wsj_pr ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthr)
+r4=felm(zscon_pr ~ broadband | NPNAME1 + time_period |0|NPNAME1,
+        data = nptextn_6monthr)
+
+#interaction effect
+i1=felm(avg_ws ~ broadband*demvote + log(circ) + jobs | time_period |0|NPNAME1,
+        data = nptextn_6month)
+i2=felm(natrev_pr ~ broadband*demvote + log(circ) + jobs| time_period |0|NPNAME1,
+        data = nptextn_6month)
+i3=felm(wsj_pr ~ broadband*demvote + log(circ) + jobs | time_period |0|NPNAME1,
+        data = nptextn_6month)
+i4=felm(zscon_pr ~ broadband*demvote + log(circ) + jobs | time_period |0|NPNAME1,
+        data = filter(nptextn_6month,circ<100000))
+
+stargazer(d1,d2,d3,d4,r1,r2,r3,r4,type="latex",omit.stat = "ser")
+stargazer(i1,i2,i3,i4,type="latex",omit.stat = "ser",omit="fac")
+
+
+###marginal effects plots
+i2_lmc=lm.cluster(natrev_pr ~ broadband*demvote + log(circ) + jobs + factor(time_period), cluster = "NPNAME1",
+        data = nptextn_6month)
+i3_lmc=lm.cluster(wsj_pr ~ broadband*demvote + broadband + log(circ) + jobs + factor(time_period), cluster = "NPNAME1",
+        data = nptextn_6month)
+
+interplot(m=i2_lmc$lm_res,var1="broadband",var2="demvote",hist = TRUE) + 
+  # Add labels for X and Y axes
+    xlab("Gore Vote Share in 2000") +
+    ylab("Estimated Coefficient for Broadband \nOn pr(Nat. Review)") +
+  # Change the background
+    theme_bw() +
+  # Add a horizontal line at y = 0
+    geom_hline(yintercept = 0, linetype = "dashed")
+
+
+interplot(m=i3_lmc$lm_res,var1="broadband",var2="demvote",hist=TRUE) + 
+  # Add labels for X and Y axes
+    xlab("Gore Vote Share in 2000") +
+    ylab("Estimated Coefficient for Broadband \nOn pr(WSJ)") +
+  # Change the background
+    theme_bw() +
+  # Add a horizontal line at y = 0
+    geom_hline(yintercept = 0, linetype = "dashed")
+
+
+
